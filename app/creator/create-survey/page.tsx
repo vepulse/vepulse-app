@@ -9,40 +9,119 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Plus, X } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useVepulseContract } from "@/lib/contracts/useVepulseContract"
+import { toast } from "sonner"
+import { useRouter } from "next/navigation"
 
-interface Question {
-  id: string
-  type: "text" | "multiple-choice" | "rating"
-  question: string
-  options?: string[]
+interface Project {
+  id: number
+  name: string
+  description: string
 }
 
 export default function CreateSurveyPage() {
-  const [questions, setQuestions] = useState<Question[]>([{ id: "1", type: "text", question: "" }])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [duration, setDuration] = useState("")
+  const [durationType, setDurationType] = useState("days")
+  const [projectId, setProjectId] = useState("0")
+  const [projects, setProjects] = useState<Project[]>([])
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
 
-  const addQuestion = () => {
-    setQuestions([...questions, { id: Date.now().toString(), type: "text", question: "" }])
-  }
+  const { createSurvey, isConnected, openWalletModal, account, getUserProjects, getProject } = useVepulseContract()
+  const router = useRouter()
 
-  const removeQuestion = (id: string) => {
-    if (questions.length > 1) {
-      setQuestions(questions.filter((q) => q.id !== id))
+  useEffect(() => {
+    if (account) {
+      loadUserProjects()
     }
-  }
+  }, [account])
 
-  const updateQuestion = (id: string, field: keyof Question, value: any) => {
-    setQuestions(questions.map((q) => (q.id === id ? { ...q, [field]: value } : q)))
+  const loadUserProjects = async () => {
+    if (!account) return
+
+    setIsLoadingProjects(true)
+    try {
+      const projectIds = await getUserProjects(account)
+
+      const projectsData = await Promise.all(
+        projectIds.map(async (id) => {
+          try {
+            const result = await getProject(Number(id))
+            const iface = new (await import("ethers")).ethers.Interface((await import("@/lib/contracts/VepulseABI.json")).default as any)
+            const decoded = iface.decodeFunctionResult("getProject", result.data)
+
+            return {
+              id: Number(decoded[0]),
+              name: decoded[1],
+              description: decoded[2],
+            }
+          } catch (error) {
+            console.error(`Error loading project ${id}:`, error)
+            return null
+          }
+        })
+      )
+
+      setProjects(projectsData.filter((p): p is Project => p !== null))
+    } catch (error) {
+      console.error("Error loading user projects:", error)
+    } finally {
+      setIsLoadingProjects(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!isConnected) {
+      toast.error("Please connect your wallet first")
+      openWalletModal()
+      return
+    }
+
+    if (!title || !description || !duration) {
+      toast.error("Please fill in all required fields")
+      return
+    }
+
     setIsSubmitting(true)
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setIsSubmitting(false)
+
+    try {
+      // Convert duration to seconds based on type
+      let durationInSeconds = parseInt(duration)
+      switch (durationType) {
+        case "hours":
+          durationInSeconds *= 3600
+          break
+        case "days":
+          durationInSeconds *= 86400
+          break
+        case "weeks":
+          durationInSeconds *= 604800
+          break
+      }
+
+      toast.loading("Creating survey on VeChain...", { id: "create-survey" })
+
+      const result = await createSurvey(title, description, durationInSeconds, parseInt(projectId))
+
+      toast.success("Survey created successfully!", { id: "create-survey" })
+
+      // Redirect to creator dashboard after a short delay
+      setTimeout(() => {
+        router.push("/creator")
+      }, 1500)
+    } catch (error: any) {
+      console.error("Error creating survey:", error)
+      toast.error(error.message || "Failed to create survey", { id: "create-survey" })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -65,20 +144,28 @@ export default function CreateSurveyPage() {
           <div className="max-w-3xl mx-auto">
             <div className="mb-8">
               <h1 className="text-4xl font-bold tracking-tight mb-2">Create New Survey</h1>
-              <p className="text-lg text-muted-foreground">Create a detailed survey with multiple questions</p>
+              <p className="text-lg text-muted-foreground">
+                Create a new survey that will be recorded on the VeChain blockchain
+              </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Basic Information */}
               <Card className="border-2">
                 <CardHeader>
-                  <CardTitle>Survey Information</CardTitle>
+                  <CardTitle>Basic Information</CardTitle>
                   <CardDescription>Provide the basic details for your survey</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="title">Survey Title *</Label>
-                    <Input id="title" placeholder="Enter survey title" required />
+                    <Input
+                      id="title"
+                      placeholder="Enter survey title"
+                      required
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -89,84 +176,103 @@ export default function CreateSurveyPage() {
                       rows={4}
                       required
                       className="resize-none"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="project">Project (Optional)</Label>
+                    <Select value={projectId} onValueChange={setProjectId} disabled={isLoadingProjects}>
+                      <SelectTrigger id="project">
+                        <SelectValue placeholder={isLoadingProjects ? "Loading projects..." : "Standalone survey (no project)"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">Standalone (No Project)</SelectItem>
+                        {projects.map((project) => (
+                          <SelectItem key={project.id} value={project.id.toString()}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {projects.length === 0 && !isLoadingProjects
+                        ? "You have no projects yet. Create a project first or leave as standalone."
+                        : "Leave as standalone or select a project to organize this survey"}
+                    </p>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="project">Project</Label>
-                      <Select>
-                        <SelectTrigger id="project">
-                          <SelectValue placeholder="Select a project" />
+                      <Label htmlFor="duration">Duration *</Label>
+                      <Input
+                        id="duration"
+                        type="number"
+                        placeholder="Enter duration"
+                        required
+                        min="1"
+                        value={duration}
+                        onChange={(e) => setDuration(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="durationType">Time Unit *</Label>
+                      <Select value={durationType} onValueChange={setDurationType}>
+                        <SelectTrigger id="durationType">
+                          <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="1">Community Governance</SelectItem>
-                          <SelectItem value="2">Product Feedback</SelectItem>
-                          <SelectItem value="3">Q4 2024 Planning</SelectItem>
+                          <SelectItem value="hours">Hours</SelectItem>
+                          <SelectItem value="days">Days</SelectItem>
+                          <SelectItem value="weeks">Weeks</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="endDate">End Date *</Label>
-                      <Input id="endDate" type="date" required />
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Questions */}
-              <Card className="border-2">
+              {/* Survey Information */}
+              <Card className="border-2 bg-muted/30">
                 <CardHeader>
-                  <CardTitle>Survey Questions</CardTitle>
-                  <CardDescription>Add questions for your survey</CardDescription>
+                  <CardTitle>On-Chain Survey</CardTitle>
+                  <CardDescription>How participation works</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  {questions.map((question, index) => (
-                    <div key={question.id} className="space-y-4 p-4 border-2 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-base">Question {index + 1}</Label>
-                        {questions.length > 1 && (
-                          <Button type="button" variant="ghost" size="icon" onClick={() => removeQuestion(question.id)}>
-                            <X className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor={`question-${question.id}`}>Question Text *</Label>
-                        <Input
-                          id={`question-${question.id}`}
-                          placeholder="Enter your question"
-                          value={question.question}
-                          onChange={(e) => updateQuestion(question.id, "question", e.target.value)}
-                          required
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor={`type-${question.id}`}>Question Type *</Label>
-                        <Select
-                          value={question.type}
-                          onValueChange={(value) => updateQuestion(question.id, "type", value)}
-                        >
-                          <SelectTrigger id={`type-${question.id}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="text">Text Response</SelectItem>
-                            <SelectItem value="multiple-choice">Multiple Choice</SelectItem>
-                            <SelectItem value="rating">Rating Scale</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                <CardContent className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-full bg-primary/10 p-1">
+                      <div className="h-2 w-2 rounded-full bg-primary" />
                     </div>
-                  ))}
-
-                  <Button type="button" variant="outline" className="w-full gap-2 bg-transparent" onClick={addQuestion}>
-                    <Plus className="h-4 w-4" />
-                    Add Question
-                  </Button>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Blockchain-based Responses</p>
+                      <p className="text-xs text-muted-foreground">
+                        Participants submit their responses on-chain by connecting their wallet
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-full bg-primary/10 p-1">
+                      <div className="h-2 w-2 rounded-full bg-primary" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">One Response Per Address</p>
+                      <p className="text-xs text-muted-foreground">
+                        Each wallet address can only submit one response to ensure data integrity
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-full bg-primary/10 p-1">
+                      <div className="h-2 w-2 rounded-full bg-primary" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Optional Rewards</p>
+                      <p className="text-xs text-muted-foreground">
+                        You can fund the survey with VET tokens to reward participants after it ends
+                      </p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -177,14 +283,14 @@ export default function CreateSurveyPage() {
                     <div className="space-y-2">
                       <h3 className="font-semibold">Blockchain Deployment</h3>
                       <p className="text-sm text-muted-foreground">
-                        Your survey will be deployed to the VeChain blockchain for secure and transparent data
-                        collection.
+                        Your survey will be deployed to the VeChain blockchain. This ensures transparency, immutability,
+                        and verifiability of all responses.
                       </p>
                     </div>
 
                     <div className="flex gap-3">
                       <Button type="submit" size="lg" className="flex-1" disabled={isSubmitting}>
-                        {isSubmitting ? "Deploying to Blockchain..." : "Create Survey"}
+                        {isSubmitting ? "Creating Survey on VeChain..." : "Create Survey"}
                       </Button>
                       <Button type="button" variant="outline" size="lg" asChild>
                         <Link href="/creator">Cancel</Link>
