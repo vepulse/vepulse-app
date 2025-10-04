@@ -1,11 +1,8 @@
-"use client"
-
 import type React from "react"
+import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
-import { VeChainProvider } from "@/lib/vechain-provider"
-import { Toaster } from "@/components/ui/sonner"
+import { Providers } from "@/components/providers"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,6 +14,11 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
+export const metadata: Metadata = {
+  title: "VePulse - Decentralized Polls & Surveys on VeChain",
+  description: "Create transparent, tamper-proof polls and surveys on the VeChain blockchain",
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -25,12 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <VeChainProvider>
-            {children}
-            <Toaster />
-          </VeChainProvider>
-        </ThemeProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   )

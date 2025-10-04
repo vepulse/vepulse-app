@@ -5,76 +5,99 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { BarChart3, Clock, FileText, FolderOpen, Plus, Vote } from "lucide-react"
+import { BarChart3, Clock, FileText, FolderOpen, Loader2, Plus, Vote } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useVepulseContract } from "@/lib/contracts/useVepulseContract"
+import { ethers } from "ethers"
 
-// Mock data
-const mockProjects = [
-  {
-    id: 1,
-    name: "Community Governance",
-    description: "Polls and surveys for community decision making",
-    polls: 5,
-    surveys: 2,
-    totalVotes: 3456,
-    status: "active",
-    createdDate: "2024-11-15",
-  },
-  {
-    id: 2,
-    name: "Product Feedback",
-    description: "Gathering user feedback on new features",
-    polls: 3,
-    surveys: 4,
-    totalVotes: 1892,
-    status: "active",
-    createdDate: "2024-12-01",
-  },
-  {
-    id: 3,
-    name: "Q4 2024 Planning",
-    description: "Strategic planning polls for Q4",
-    polls: 2,
-    surveys: 1,
-    totalVotes: 567,
-    status: "completed",
-    createdDate: "2024-10-01",
-  },
-]
+interface Project {
+  id: number
+  name: string
+  description: string
+  polls: number
+  surveys: number
+  totalVotes: number
+  status: string
+  createdDate: string
+}
 
-const mockPolls = [
-  {
-    id: 1,
-    title: "Community Treasury Allocation 2025",
-    project: "Community Governance",
-    totalVotes: 1247,
-    status: "active",
-    endDate: "2025-01-15",
-  },
-  {
-    id: 2,
-    title: "New Feature Priority Poll",
-    project: "Product Feedback",
-    totalVotes: 892,
-    status: "active",
-    endDate: "2025-01-10",
-  },
-  {
-    id: 3,
-    title: "Protocol Upgrade Proposal",
-    project: "Community Governance",
-    totalVotes: 3456,
-    status: "ended",
-    endDate: "2024-12-28",
-  },
-]
+interface PollSurvey {
+  id: number
+  title: string
+  project: string
+  totalVotes: number
+  status: string
+  endDate: string
+  itemType: number
+}
 
 export default function CreatorPage() {
   const [selectedTab, setSelectedTab] = useState("overview")
+  const [projects, setProjects] = useState<Project[]>([])
+  const [polls, setPolls] = useState<PollSurvey[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const activePolls = mockPolls.filter((p) => p.status === "active").length
-  const totalVotes = mockPolls.reduce((acc, poll) => acc + poll.totalVotes, 0)
+  const { account, getUserProjects, getUserPollsSurveys, getProject, getPollSurvey, openWalletModal } = useVepulseContract()
+
+  useEffect(() => {
+    if (account) {
+      loadUserData()
+    } else {
+      setIsLoading(false)
+    }
+  }, [account])
+
+  const loadUserData = async () => {
+    if (!account) return
+
+    setIsLoading(true)
+    try {
+      // Fetch user's project IDs
+      const projectIds = await getUserProjects(account)
+
+      // Fetch user's poll/survey IDs
+      const pollSurveyIds = await getUserPollsSurveys(account)
+
+      // Fetch full data for each poll/survey
+      const pollsData = await Promise.all(
+        pollSurveyIds.map(async (id) => {
+          try {
+            const data = await getPollSurvey(Number(id))
+            const endDate = new Date(Number(data.endTime) * 1000)
+            const now = new Date()
+            const isActive = now < endDate && data.status === 0
+
+            return {
+              id: Number(data.id),
+              title: data.title,
+              project: data.projectId ? `Project #${data.projectId}` : "Standalone",
+              totalVotes: Number(data.totalResponses),
+              status: isActive ? "active" : "ended",
+              endDate: endDate.toISOString().split("T")[0],
+              itemType: Number(data.itemType),
+            }
+          } catch (error) {
+            console.error(`Error fetching poll/survey ${id}:`, error)
+            return null
+          }
+        })
+      )
+
+      setPolls(pollsData.filter((p): p is PollSurvey => p !== null))
+
+      // For now, we'll set projects to empty array since we need to decode the getProject response
+      // You can extend this to fetch full project data
+      setProjects([])
+    } catch (error) {
+      console.error("Error loading user data:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const activePolls = polls.filter((p) => p.status === "active").length
+  const totalVotes = polls.reduce((acc, poll) => acc + poll.totalVotes, 0)
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -124,25 +147,33 @@ export default function CreatorPage() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardDescription>Total Projects</CardDescription>
-                  <CardTitle className="text-3xl">{mockProjects.length}</CardTitle>
+                  <CardTitle className="text-3xl">
+                    {isLoading ? <Loader2 className="h-8 w-8 animate-spin" /> : projects.length}
+                  </CardTitle>
                 </CardHeader>
               </Card>
               <Card>
                 <CardHeader className="pb-3">
                   <CardDescription>Active Polls</CardDescription>
-                  <CardTitle className="text-3xl">{activePolls}</CardTitle>
+                  <CardTitle className="text-3xl">
+                    {isLoading ? <Loader2 className="h-8 w-8 animate-spin" /> : activePolls}
+                  </CardTitle>
                 </CardHeader>
               </Card>
               <Card>
                 <CardHeader className="pb-3">
                   <CardDescription>Total Votes</CardDescription>
-                  <CardTitle className="text-3xl">{totalVotes.toLocaleString()}</CardTitle>
+                  <CardTitle className="text-3xl">
+                    {isLoading ? <Loader2 className="h-8 w-8 animate-spin" /> : totalVotes.toLocaleString()}
+                  </CardTitle>
                 </CardHeader>
               </Card>
               <Card>
                 <CardHeader className="pb-3">
-                  <CardDescription>Avg. Participation</CardDescription>
-                  <CardTitle className="text-3xl">68%</CardTitle>
+                  <CardDescription>Total Polls/Surveys</CardDescription>
+                  <CardTitle className="text-3xl">
+                    {isLoading ? <Loader2 className="h-8 w-8 animate-spin" /> : polls.length}
+                  </CardTitle>
                 </CardHeader>
               </Card>
             </div>
@@ -151,6 +182,20 @@ export default function CreatorPage() {
 
         {/* Main Content */}
         <section className="container py-12">
+          {!account ? (
+            <Card className="border-2">
+              <CardContent className="py-12">
+                <div className="text-center">
+                  <Vote className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                  <h3 className="text-lg font-semibold mb-2">Connect Your Wallet</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Connect your VeChain wallet to view and manage your projects, polls, and surveys
+                  </p>
+                  <Button onClick={() => openWalletModal()}>Connect Wallet</Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
           <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -207,31 +252,44 @@ export default function CreatorPage() {
                     <CardDescription>Your most recent polls and their performance</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {mockPolls.slice(0, 3).map((poll) => (
-                        <div key={poll.id} className="flex items-center justify-between p-4 border rounded-lg">
-                          <div className="flex-1">
-                            <h4 className="font-semibold">{poll.title}</h4>
-                            <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Vote className="h-3 w-3" />
-                                {poll.totalVotes.toLocaleString()} votes
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                Ends {new Date(poll.endDate).toLocaleDateString()}
-                              </span>
+                    {isLoading ? (
+                      <div className="flex justify-center items-center py-8">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                      </div>
+                    ) : polls.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <p>No polls created yet</p>
+                        <Button className="mt-4" asChild>
+                          <Link href="/creator/create-poll">Create Your First Poll</Link>
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {polls.slice(0, 3).map((poll) => (
+                          <div key={poll.id} className="flex items-center justify-between p-4 border rounded-lg">
+                            <div className="flex-1">
+                              <h4 className="font-semibold">{poll.title}</h4>
+                              <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Vote className="h-3 w-3" />
+                                  {poll.totalVotes.toLocaleString()} responses
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  Ends {new Date(poll.endDate).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={poll.status === "active" ? "default" : "outline"}>{poll.status}</Badge>
+                              <Button variant="ghost" size="sm" asChild>
+                                <Link href={`/creator/poll/${poll.id}`}>View</Link>
+                              </Button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={poll.status === "active" ? "default" : "outline"}>{poll.status}</Badge>
-                            <Button variant="ghost" size="sm" asChild>
-                              <Link href={`/creator/poll/${poll.id}`}>View</Link>
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -253,44 +311,59 @@ export default function CreatorPage() {
                   </Button>
                 </div>
 
-                <div className="grid gap-6 md:grid-cols-2">
-                  {mockProjects.map((project) => (
-                    <Card key={project.id} className="border-2 hover:border-primary/50 transition-colors">
-                      <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge variant={project.status === "active" ? "default" : "secondary"}>
-                                {project.status}
-                              </Badge>
+                {isLoading ? (
+                  <div className="flex justify-center items-center py-12">
+                    <Loader2 className="h-12 w-12 animate-spin" />
+                  </div>
+                ) : projects.length === 0 ? (
+                  <div className="text-center py-12">
+                    <FolderOpen className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-lg font-semibold mb-2">No Projects Yet</h3>
+                    <p className="text-muted-foreground mb-4">Create your first project to organize your polls and surveys</p>
+                    <Button asChild>
+                      <Link href="/creator/create-project">Create Project</Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {projects.map((project) => (
+                      <Card key={project.id} className="border-2 hover:border-primary/50 transition-colors">
+                        <CardHeader>
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Badge variant={project.status === "active" ? "default" : "secondary"}>
+                                  {project.status}
+                                </Badge>
+                              </div>
+                              <CardTitle className="text-xl">{project.name}</CardTitle>
+                              <CardDescription>{project.description}</CardDescription>
                             </div>
-                            <CardTitle className="text-xl">{project.name}</CardTitle>
-                            <CardDescription>{project.description}</CardDescription>
                           </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="grid grid-cols-3 gap-4 text-center">
-                          <div>
-                            <div className="text-2xl font-bold">{project.polls}</div>
-                            <div className="text-xs text-muted-foreground">Polls</div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="grid grid-cols-3 gap-4 text-center">
+                            <div>
+                              <div className="text-2xl font-bold">{project.polls}</div>
+                              <div className="text-xs text-muted-foreground">Polls</div>
+                            </div>
+                            <div>
+                              <div className="text-2xl font-bold">{project.surveys}</div>
+                              <div className="text-xs text-muted-foreground">Surveys</div>
+                            </div>
+                            <div>
+                              <div className="text-2xl font-bold">{project.totalVotes}</div>
+                              <div className="text-xs text-muted-foreground">Votes</div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="text-2xl font-bold">{project.surveys}</div>
-                            <div className="text-xs text-muted-foreground">Surveys</div>
-                          </div>
-                          <div>
-                            <div className="text-2xl font-bold">{project.totalVotes}</div>
-                            <div className="text-xs text-muted-foreground">Votes</div>
-                          </div>
-                        </div>
-                        <Button className="w-full bg-transparent" variant="outline" asChild>
-                          <Link href={`/creator/project/${project.id}`}>Manage Project</Link>
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
+                          <Button className="w-full bg-transparent" variant="outline" asChild>
+                            <Link href={`/creator/project/${project.id}`}>Manage Project</Link>
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -318,47 +391,66 @@ export default function CreatorPage() {
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  {mockPolls.map((poll) => (
-                    <Card key={poll.id} className="border-2">
-                      <CardContent className="pt-6">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge variant="secondary">{poll.project}</Badge>
-                              <Badge variant={poll.status === "active" ? "default" : "outline"}>{poll.status}</Badge>
+                {isLoading ? (
+                  <div className="flex justify-center items-center py-12">
+                    <Loader2 className="h-12 w-12 animate-spin" />
+                  </div>
+                ) : polls.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Vote className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-lg font-semibold mb-2">No Polls or Surveys Yet</h3>
+                    <p className="text-muted-foreground mb-4">Create your first poll or survey to start gathering feedback</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button asChild>
+                        <Link href="/creator/create-poll">Create Poll</Link>
+                      </Button>
+                      <Button variant="outline" asChild>
+                        <Link href="/creator/create-survey">Create Survey</Link>
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {polls.map((poll) => (
+                      <Card key={poll.id} className="border-2">
+                        <CardContent className="pt-6">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Badge variant="secondary">{poll.project}</Badge>
+                                <Badge variant={poll.status === "active" ? "default" : "outline"}>{poll.status}</Badge>
+                                <Badge variant="outline">{poll.itemType === 0 ? "Poll" : "Survey"}</Badge>
+                              </div>
+                              <h3 className="font-semibold text-lg">{poll.title}</h3>
+                              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Vote className="h-3 w-3" />
+                                  {poll.totalVotes.toLocaleString()} responses
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  Ends {new Date(poll.endDate).toLocaleDateString()}
+                                </span>
+                              </div>
                             </div>
-                            <h3 className="font-semibold text-lg">{poll.title}</h3>
-                            <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Vote className="h-3 w-3" />
-                                {poll.totalVotes.toLocaleString()} votes
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                Ends {new Date(poll.endDate).toLocaleDateString()}
-                              </span>
+                            <div className="flex gap-2">
+                              <Button variant="outline" size="sm" className="gap-1 bg-transparent" asChild>
+                                <Link href={`/creator/poll/${poll.id}`}>
+                                  <BarChart3 className="h-3 w-3" />
+                                  View
+                                </Link>
+                              </Button>
                             </div>
                           </div>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" className="gap-1 bg-transparent" asChild>
-                              <Link href={`/creator/poll/${poll.id}`}>
-                                <BarChart3 className="h-3 w-3" />
-                                Analytics
-                              </Link>
-                            </Button>
-                            <Button size="sm" asChild>
-                              <Link href={`/creator/poll/${poll.id}/edit`}>Edit</Link>
-                            </Button>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </Tabs>
+          )}
         </section>
       </main>
     </div>
