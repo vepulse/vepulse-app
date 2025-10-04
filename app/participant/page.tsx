@@ -6,83 +6,91 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, Search, Users, Vote } from "lucide-react"
+import { Clock, Loader2, Search, Users, Vote, Coins } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useVepulseContract } from "@/lib/contracts/useVepulseContract"
 
-// Mock data for polls
-const mockPolls = [
-  {
-    id: 1,
-    title: "Community Treasury Allocation 2025",
-    description: "Vote on how the community treasury should be allocated for the upcoming year",
-    category: "Governance",
-    endDate: "2025-01-15",
-    totalVotes: 1247,
-    status: "active",
-    options: [
-      { id: 1, text: "Development (40%)", votes: 498 },
-      { id: 2, text: "Marketing (30%)", votes: 374 },
-      { id: 3, text: "Operations (20%)", votes: 249 },
-      { id: 4, text: "Reserve (10%)", votes: 126 },
-    ],
-  },
-  {
-    id: 2,
-    title: "New Feature Priority Poll",
-    description: "Help us decide which feature to build next for the VePulse platform",
-    category: "Product",
-    endDate: "2025-01-10",
-    totalVotes: 892,
-    status: "active",
-    options: [
-      { id: 1, text: "Mobile App", votes: 356 },
-      { id: 2, text: "Advanced Analytics", votes: 267 },
-      { id: 3, text: "API Access", votes: 178 },
-      { id: 4, text: "White Label Solution", votes: 91 },
-    ],
-  },
-  {
-    id: 3,
-    title: "VeChain Ecosystem Survey",
-    description: "Share your thoughts on the current state of the VeChain ecosystem",
-    category: "Survey",
-    endDate: "2025-01-20",
-    totalVotes: 2341,
-    status: "active",
-    options: [
-      { id: 1, text: "Very Satisfied", votes: 1170 },
-      { id: 2, text: "Satisfied", votes: 702 },
-      { id: 3, text: "Neutral", votes: 234 },
-      { id: 4, text: "Needs Improvement", votes: 235 },
-    ],
-  },
-  {
-    id: 4,
-    title: "Protocol Upgrade Proposal",
-    description: "Vote on the proposed protocol upgrade for improved transaction speeds",
-    category: "Governance",
-    endDate: "2024-12-28",
-    totalVotes: 3456,
-    status: "ended",
-    options: [
-      { id: 1, text: "Approve", votes: 2765 },
-      { id: 2, text: "Reject", votes: 691 },
-    ],
-  },
-]
+interface PollData {
+  id: number
+  itemType: number
+  title: string
+  description: string
+  creator: string
+  projectId: number
+  createdAt: Date
+  endTime: Date
+  status: number
+  fundingPool: bigint
+  totalResponses: number
+}
 
 export default function ParticipantPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedTab, setSelectedTab] = useState("active")
+  const [polls, setPolls] = useState<PollData[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [userVotedPolls, setUserVotedPolls] = useState<Set<number>>(new Set())
 
-  const filteredPolls = mockPolls.filter((poll) => {
+  const { getAllPolls, account, hasResponded } = useVepulseContract()
+
+  useEffect(() => {
+    loadPolls()
+  }, [])
+
+  useEffect(() => {
+    if (account && polls.length > 0) {
+      loadUserVotes()
+    }
+  }, [account, polls])
+
+  const loadPolls = async () => {
+    setIsLoading(true)
+    try {
+      const allPolls = await getAllPolls(50)
+      setPolls(allPolls)
+    } catch (error) {
+      console.error("Error loading polls:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const loadUserVotes = async () => {
+    if (!account) return
+
+    try {
+      const votedSet = new Set<number>()
+      await Promise.all(
+        polls.map(async (poll) => {
+          const voted = await hasResponded(poll.id, account)
+          if (voted) {
+            votedSet.add(poll.id)
+          }
+        })
+      )
+      setUserVotedPolls(votedSet)
+    } catch (error) {
+      console.error("Error loading user votes:", error)
+    }
+  }
+
+  const filteredPolls = polls.filter((poll) => {
     const matchesSearch =
       poll.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       poll.description.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesTab = selectedTab === "all" || poll.status === selectedTab
+
+    const isActive = poll.status === 0 && new Date() < poll.endTime
+    const pollStatus = isActive ? "active" : "ended"
+    const matchesTab = selectedTab === "all" || pollStatus === selectedTab
+
     return matchesSearch && matchesTab
   })
+
+  const activePolls = polls.filter(p => p.status === 0 && new Date() < p.endTime)
+  const totalResponses = polls.reduce((acc, poll) => acc + poll.totalResponses, 0)
+  const userVoteCount = userVotedPolls.size
+  const participationRate = polls.length > 0 ? Math.round((userVoteCount / polls.length) * 100) : 0
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -111,34 +119,38 @@ export default function ParticipantPage() {
         {/* Stats Section */}
         <section className="border-b border-border bg-background py-8">
           <div className="container">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardDescription>Active Polls</CardDescription>
-                  <CardTitle className="text-3xl">{mockPolls.filter((p) => p.status === "active").length}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardDescription>Total Votes Cast</CardDescription>
-                  <CardTitle className="text-3xl">
-                    {mockPolls.reduce((acc, poll) => acc + poll.totalVotes, 0).toLocaleString()}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardDescription>Your Votes</CardDescription>
-                  <CardTitle className="text-3xl">0</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardDescription>Participation Rate</CardDescription>
-                  <CardTitle className="text-3xl">0%</CardTitle>
-                </CardHeader>
-              </Card>
-            </div>
+            {isLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Active Polls</CardDescription>
+                    <CardTitle className="text-3xl">{activePolls.length}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Total Responses</CardDescription>
+                    <CardTitle className="text-3xl">{totalResponses.toLocaleString()}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Your Responses</CardDescription>
+                    <CardTitle className="text-3xl">{userVoteCount}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Participation Rate</CardDescription>
+                    <CardTitle className="text-3xl">{participationRate}%</CardTitle>
+                  </CardHeader>
+                </Card>
+              </div>
+            )}
           </div>
         </section>
 
@@ -167,53 +179,80 @@ export default function ParticipantPage() {
             </div>
 
             {/* Polls Grid */}
-            <div className="grid gap-6 md:grid-cols-2">
-              {filteredPolls.map((poll) => (
-                <Card key={poll.id} className="border-2 hover:border-primary/50 transition-colors">
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge variant="secondary">{poll.category}</Badge>
-                          <Badge variant={poll.status === "active" ? "default" : "outline"}>
-                            {poll.status === "active" ? "Active" : "Ended"}
-                          </Badge>
+            {isLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-12 w-12 animate-spin" />
+              </div>
+            ) : (
+              <div className="grid gap-6 md:grid-cols-2">
+                {filteredPolls.map((poll) => {
+                  const isActive = poll.status === 0 && new Date() < poll.endTime
+                  const hasVoted = userVotedPolls.has(poll.id)
+
+                  return (
+                    <Card key={poll.id} className="border-2 hover:border-primary/50 transition-colors">
+                      <CardHeader>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="space-y-1 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="secondary">
+                                {poll.itemType === 0 ? "Poll" : "Survey"}
+                              </Badge>
+                              <Badge variant={isActive ? "default" : "outline"}>
+                                {isActive ? "Active" : "Ended"}
+                              </Badge>
+                              {poll.fundingPool > 0 && (
+                                <Badge variant="default" className="gap-1">
+                                  <Coins className="h-3 w-3" />
+                                  Funded
+                                </Badge>
+                              )}
+                              {hasVoted && (
+                                <Badge variant="outline" className="gap-1">
+                                  <Vote className="h-3 w-3" />
+                                  Voted
+                                </Badge>
+                              )}
+                            </div>
+                            <CardTitle className="text-xl">{poll.title}</CardTitle>
+                            <CardDescription>{poll.description}</CardDescription>
+                          </div>
                         </div>
-                        <CardTitle className="text-xl">{poll.title}</CardTitle>
-                        <CardDescription>{poll.description}</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Vote className="h-4 w-4" />
-                        <span>{poll.totalVotes.toLocaleString()} votes</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        <span>Ends {new Date(poll.endDate).toLocaleDateString()}</span>
-                      </div>
-                    </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                          <div className="flex items-center gap-1">
+                            <Users className="h-4 w-4" />
+                            <span>{poll.totalResponses.toLocaleString()} responses</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-4 w-4" />
+                            <span>Ends {poll.endTime.toLocaleDateString()}</span>
+                          </div>
+                        </div>
 
-                    <Button className="w-full" asChild disabled={poll.status === "ended"}>
-                      <Link href={`/participant/poll/${poll.id}`}>
-                        {poll.status === "active" ? "Vote Now" : "View Results"}
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                        <Button className="w-full" asChild disabled={!isActive}>
+                          <Link href={`/participant/poll/${poll.id}`}>
+                            {isActive ? (hasVoted ? "View Details" : "Respond Now") : "View Results"}
+                          </Link>
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
 
-            {filteredPolls.length === 0 && (
+            {!isLoading && filteredPolls.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted mb-4">
                   <Search className="h-10 w-10 text-muted-foreground" />
                 </div>
                 <h3 className="text-xl font-semibold mb-2">No polls found</h3>
                 <p className="text-muted-foreground max-w-md">
-                  Try adjusting your search or filter to find what you're looking for
+                  {polls.length === 0
+                    ? "There are no polls or surveys available yet. Check back later!"
+                    : "Try adjusting your search or filter to find what you're looking for"}
                 </p>
               </div>
             )}

@@ -275,6 +275,47 @@ export function useVepulseContract() {
     []
   )
 
+  const getAllPolls = useCallback(
+    async (limit: number = 100) => {
+      try {
+        const polls = []
+
+        // Try to fetch polls from ID 1 to limit
+        for (let i = 1; i <= limit; i++) {
+          try {
+            const pollData = await getPollSurvey(i)
+
+            // Only include if it exists (id > 0)
+            if (pollData.id && Number(pollData.id) > 0) {
+              polls.push({
+                id: Number(pollData.id),
+                itemType: Number(pollData.itemType),
+                title: pollData.title,
+                description: pollData.description,
+                creator: pollData.creator,
+                projectId: Number(pollData.projectId),
+                createdAt: new Date(Number(pollData.createdAt) * 1000),
+                endTime: new Date(Number(pollData.endTime) * 1000),
+                status: Number(pollData.status),
+                fundingPool: pollData.fundingPool,
+                totalResponses: Number(pollData.totalResponses),
+              })
+            }
+          } catch (error) {
+            // Poll doesn't exist, continue to next
+            continue
+          }
+        }
+
+        return polls
+      } catch (error) {
+        console.error("Error getting all polls:", error)
+        return []
+      }
+    },
+    [getPollSurvey]
+  )
+
   return {
     account,
     isConnected: !!account,
@@ -289,6 +330,7 @@ export function useVepulseContract() {
     submitResponse,
     hasResponded,
     getPotentialReward,
+    getAllPolls,
   }
 }
 
