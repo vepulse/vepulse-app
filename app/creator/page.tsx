@@ -30,6 +30,7 @@ interface PollSurvey {
   status: string
   endDate: string
   itemType: number
+  projectId: number
 }
 
 export default function CreatorPage() {
@@ -76,6 +77,7 @@ export default function CreatorPage() {
               status: isActive ? "active" : "ended",
               endDate: endDate.toISOString().split("T")[0],
               itemType: Number(data.itemType),
+              projectId: Number(data.projectId),
             }
           } catch (error) {
             console.error(`Error fetching poll/survey ${id}:`, error)
@@ -84,11 +86,42 @@ export default function CreatorPage() {
         })
       )
 
-      setPolls(pollsData.filter((p): p is PollSurvey => p !== null))
+      const validPolls = pollsData.filter((p): p is PollSurvey => p !== null)
+      setPolls(validPolls)
 
-      // For now, we'll set projects to empty array since we need to decode the getProject response
-      // You can extend this to fetch full project data
-      setProjects([])
+      // Fetch full data for each project
+      const projectsData = await Promise.all(
+        projectIds.map(async (id) => {
+          try {
+            const result = await getProject(Number(id))
+            const iface = new ethers.Interface((await import("@/lib/contracts/VepulseABI.json")).default as any)
+            const decoded = iface.decodeFunctionResult("getProject", result.data)
+
+            // Filter polls/surveys that belong to this project
+            const projectPolls = validPolls.filter(p => p.projectId === Number(id))
+            const polls = projectPolls.filter(p => p.itemType === 0).length
+            const surveys = projectPolls.filter(p => p.itemType === 1).length
+            const totalVotes = projectPolls.reduce((acc, p) => acc + p.totalVotes, 0)
+            const hasActivePolls = projectPolls.some(p => p.status === "active")
+
+            return {
+              id: Number(decoded[0]),
+              name: decoded[1],
+              description: decoded[2],
+              polls,
+              surveys,
+              totalVotes,
+              status: hasActivePolls ? "active" : "completed",
+              createdDate: new Date().toISOString().split("T")[0], // Projects don't have createdAt in contract
+            }
+          } catch (error) {
+            console.error(`Error fetching project ${id}:`, error)
+            return null
+          }
+        })
+      )
+
+      setProjects(projectsData.filter((p): p is Project => p !== null))
     } catch (error) {
       console.error("Error loading user data:", error)
     } finally {
