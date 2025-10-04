@@ -11,10 +11,16 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useVepulseContract } from "@/lib/contracts/useVepulseContract"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
+
+interface Project {
+  id: number
+  name: string
+  description: string
+}
 
 export default function CreatePollPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -23,9 +29,51 @@ export default function CreatePollPage() {
   const [duration, setDuration] = useState("")
   const [durationType, setDurationType] = useState("days")
   const [projectId, setProjectId] = useState("0")
+  const [projects, setProjects] = useState<Project[]>([])
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
 
-  const { createPoll, isConnected, openWalletModal } = useVepulseContract()
+  const { createPoll, isConnected, openWalletModal, account, getUserProjects, getProject } = useVepulseContract()
   const router = useRouter()
+
+  useEffect(() => {
+    if (account) {
+      loadUserProjects()
+    }
+  }, [account])
+
+  const loadUserProjects = async () => {
+    if (!account) return
+
+    setIsLoadingProjects(true)
+    try {
+      const projectIds = await getUserProjects(account)
+
+      const projectsData = await Promise.all(
+        projectIds.map(async (id) => {
+          try {
+            const result = await getProject(Number(id))
+            const iface = new (await import("ethers")).ethers.Interface((await import("@/lib/contracts/VepulseABI.json")).default as any)
+            const decoded = iface.decodeFunctionResult("getProject", result.data)
+
+            return {
+              id: Number(decoded[0]),
+              name: decoded[1],
+              description: decoded[2],
+            }
+          } catch (error) {
+            console.error(`Error loading project ${id}:`, error)
+            return null
+          }
+        })
+      )
+
+      setProjects(projectsData.filter((p): p is Project => p !== null))
+    } catch (error) {
+      console.error("Error loading user projects:", error)
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -135,19 +183,23 @@ export default function CreatePollPage() {
 
                   <div className="space-y-2">
                     <Label htmlFor="project">Project (Optional)</Label>
-                    <Select value={projectId} onValueChange={setProjectId}>
+                    <Select value={projectId} onValueChange={setProjectId} disabled={isLoadingProjects}>
                       <SelectTrigger id="project">
-                        <SelectValue placeholder="Standalone poll (no project)" />
+                        <SelectValue placeholder={isLoadingProjects ? "Loading projects..." : "Standalone poll (no project)"} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="0">Standalone (No Project)</SelectItem>
-                        <SelectItem value="1">Project #1</SelectItem>
-                        <SelectItem value="2">Project #2</SelectItem>
-                        <SelectItem value="3">Project #3</SelectItem>
+                        {projects.map((project) => (
+                          <SelectItem key={project.id} value={project.id.toString()}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Leave as standalone or select a project to organize this poll
+                      {projects.length === 0 && !isLoadingProjects
+                        ? "You have no projects yet. Create a project first or leave as standalone."
+                        : "Leave as standalone or select a project to organize this poll"}
                     </p>
                   </div>
 
