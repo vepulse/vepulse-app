@@ -9,37 +9,71 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Plus, X } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
+import { useVepulseContract } from "@/lib/contracts/useVepulseContract"
+import { toast } from "sonner"
+import { useRouter } from "next/navigation"
 
 export default function CreatePollPage() {
-  const [options, setOptions] = useState(["", ""])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [duration, setDuration] = useState("")
+  const [durationType, setDurationType] = useState("days")
+  const [projectId, setProjectId] = useState("0")
 
-  const addOption = () => {
-    setOptions([...options, ""])
-  }
-
-  const removeOption = (index: number) => {
-    if (options.length > 2) {
-      setOptions(options.filter((_, i) => i !== index))
-    }
-  }
-
-  const updateOption = (index: number, value: string) => {
-    const newOptions = [...options]
-    newOptions[index] = value
-    setOptions(newOptions)
-  }
+  const { createPoll, isConnected, openWalletModal } = useVepulseContract()
+  const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!isConnected) {
+      toast.error("Please connect your wallet first")
+      openWalletModal()
+      return
+    }
+
+    if (!title || !description || !duration) {
+      toast.error("Please fill in all required fields")
+      return
+    }
+
     setIsSubmitting(true)
-    // Simulate blockchain transaction
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setIsSubmitting(false)
-    // Redirect or show success
+
+    try {
+      // Convert duration to seconds based on type
+      let durationInSeconds = parseInt(duration)
+      switch (durationType) {
+        case "hours":
+          durationInSeconds *= 3600
+          break
+        case "days":
+          durationInSeconds *= 86400
+          break
+        case "weeks":
+          durationInSeconds *= 604800
+          break
+      }
+
+      toast.loading("Creating poll on VeChain...", { id: "create-poll" })
+
+      const result = await createPoll(title, description, durationInSeconds, parseInt(projectId))
+
+      toast.success("Poll created successfully!", { id: "create-poll" })
+
+      // Redirect to creator dashboard after a short delay
+      setTimeout(() => {
+        router.push("/creator")
+      }, 1500)
+    } catch (error: any) {
+      console.error("Error creating poll:", error)
+      toast.error(error.message || "Failed to create poll", { id: "create-poll" })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -77,7 +111,13 @@ export default function CreatePollPage() {
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="title">Poll Title *</Label>
-                    <Input id="title" placeholder="Enter poll title" required />
+                    <Input
+                      id="title"
+                      placeholder="Enter poll title"
+                      required
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -88,123 +128,98 @@ export default function CreatePollPage() {
                       rows={4}
                       required
                       className="resize-none"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="project">Project (Optional)</Label>
+                    <Select value={projectId} onValueChange={setProjectId}>
+                      <SelectTrigger id="project">
+                        <SelectValue placeholder="Standalone poll (no project)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">Standalone (No Project)</SelectItem>
+                        <SelectItem value="1">Project #1</SelectItem>
+                        <SelectItem value="2">Project #2</SelectItem>
+                        <SelectItem value="3">Project #3</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Leave as standalone or select a project to organize this poll
+                    </p>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="project">Project</Label>
-                      <Select>
-                        <SelectTrigger id="project">
-                          <SelectValue placeholder="Select a project" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">Community Governance</SelectItem>
-                          <SelectItem value="2">Product Feedback</SelectItem>
-                          <SelectItem value="3">Q4 2024 Planning</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Label htmlFor="duration">Duration *</Label>
+                      <Input
+                        id="duration"
+                        type="number"
+                        placeholder="Enter duration"
+                        required
+                        min="1"
+                        value={duration}
+                        onChange={(e) => setDuration(e.target.value)}
+                      />
                     </div>
-
                     <div className="space-y-2">
-                      <Label htmlFor="category">Category *</Label>
-                      <Select required>
-                        <SelectTrigger id="category">
-                          <SelectValue placeholder="Select category" />
+                      <Label htmlFor="durationType">Time Unit *</Label>
+                      <Select value={durationType} onValueChange={setDurationType}>
+                        <SelectTrigger id="durationType">
+                          <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="governance">Governance</SelectItem>
-                          <SelectItem value="product">Product</SelectItem>
-                          <SelectItem value="community">Community</SelectItem>
-                          <SelectItem value="technical">Technical</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
+                          <SelectItem value="hours">Hours</SelectItem>
+                          <SelectItem value="days">Days</SelectItem>
+                          <SelectItem value="weeks">Weeks</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="endDate">End Date *</Label>
-                    <Input id="endDate" type="date" required />
-                  </div>
                 </CardContent>
               </Card>
 
-              {/* Poll Options */}
-              <Card className="border-2">
+              {/* Poll Information */}
+              <Card className="border-2 bg-muted/30">
                 <CardHeader>
-                  <CardTitle>Poll Options</CardTitle>
-                  <CardDescription>Add the options participants can vote on (minimum 2)</CardDescription>
+                  <CardTitle>On-Chain Poll</CardTitle>
+                  <CardDescription>How voting works</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {options.map((option, index) => (
-                    <div key={index} className="flex gap-2">
-                      <div className="flex-1 space-y-2">
-                        <Label htmlFor={`option-${index}`}>Option {index + 1} *</Label>
-                        <Input
-                          id={`option-${index}`}
-                          placeholder={`Enter option ${index + 1}`}
-                          value={option}
-                          onChange={(e) => updateOption(index, e.target.value)}
-                          required
-                        />
-                      </div>
-                      {options.length > 2 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="mt-8"
-                          onClick={() => removeOption(index)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
+                <CardContent className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-full bg-primary/10 p-1">
+                      <div className="h-2 w-2 rounded-full bg-primary" />
                     </div>
-                  ))}
-
-                  <Button type="button" variant="outline" className="w-full gap-2 bg-transparent" onClick={addOption}>
-                    <Plus className="h-4 w-4" />
-                    Add Option
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Settings */}
-              <Card className="border-2">
-                <CardHeader>
-                  <CardTitle>Poll Settings</CardTitle>
-                  <CardDescription>Configure additional settings for your poll</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Anonymous Voting</Label>
-                      <p className="text-sm text-muted-foreground">Allow participants to vote anonymously</p>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Blockchain-based Voting</p>
+                      <p className="text-xs text-muted-foreground">
+                        Participants submit their responses on-chain by connecting their wallet
+                      </p>
                     </div>
-                    <Button type="button" variant="outline" size="sm">
-                      Enabled
-                    </Button>
                   </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Show Results</Label>
-                      <p className="text-sm text-muted-foreground">Display results in real-time</p>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-full bg-primary/10 p-1">
+                      <div className="h-2 w-2 rounded-full bg-primary" />
                     </div>
-                    <Button type="button" variant="outline" size="sm">
-                      Enabled
-                    </Button>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">One Vote Per Address</p>
+                      <p className="text-xs text-muted-foreground">
+                        Each wallet address can only submit one response to prevent duplicate voting
+                      </p>
+                    </div>
                   </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Allow Vote Changes</Label>
-                      <p className="text-sm text-muted-foreground">Let participants change their vote</p>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 rounded-full bg-primary/10 p-1">
+                      <div className="h-2 w-2 rounded-full bg-primary" />
                     </div>
-                    <Button type="button" variant="outline" size="sm">
-                      Disabled
-                    </Button>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Optional Rewards</p>
+                      <p className="text-xs text-muted-foreground">
+                        You can fund the poll with VET tokens to reward participants after it ends
+                      </p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -223,7 +238,7 @@ export default function CreatePollPage() {
 
                     <div className="flex gap-3">
                       <Button type="submit" size="lg" className="flex-1" disabled={isSubmitting}>
-                        {isSubmitting ? "Deploying to Blockchain..." : "Create Poll"}
+                        {isSubmitting ? "Creating Poll on VeChain..." : "Create Poll"}
                       </Button>
                       <Button type="button" variant="outline" size="lg" asChild>
                         <Link href="/creator">Cancel</Link>
