@@ -4,74 +4,142 @@ import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, CheckCircle2, Clock, TrendingUp, Users, Vote } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Clock, Loader2, TrendingUp, Users, Vote, Coins } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
-import { useParams } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useParams, useRouter } from "next/navigation"
+import { useVepulseContract } from "@/lib/contracts/useVepulseContract"
+import { toast } from "sonner"
+import { ethers } from "ethers"
 
-// Mock poll data
-const mockPollData = {
-  id: 1,
-  title: "Community Treasury Allocation 2025",
-  description:
-    "Vote on how the community treasury should be allocated for the upcoming year. This decision will impact the development roadmap, marketing initiatives, operational expenses, and reserve funds for the VePulse platform.",
-  category: "Governance",
-  creator: "0x742d...4f2a",
-  createdDate: "2024-12-01",
-  endDate: "2025-01-15",
-  totalVotes: 1247,
-  status: "active",
-  options: [
-    {
-      id: 1,
-      text: "Development (40%)",
-      description: "Allocate 40% to platform development and new features",
-      votes: 498,
-    },
-    {
-      id: 2,
-      text: "Marketing (30%)",
-      description: "Allocate 30% to marketing and community growth",
-      votes: 374,
-    },
-    {
-      id: 3,
-      text: "Operations (20%)",
-      description: "Allocate 20% to operational expenses and infrastructure",
-      votes: 249,
-    },
-    {
-      id: 4,
-      text: "Reserve (10%)",
-      description: "Keep 10% in reserve for emergencies",
-      votes: 126,
-    },
-  ],
+interface PollData {
+  id: number
+  title: string
+  description: string
+  creator: string
+  createdAt: Date
+  endDate: Date
+  totalResponses: number
+  status: number
+  fundingPool: bigint
+  potentialReward: bigint
+  itemType: number
 }
 
 export default function PollDetailPage() {
   const params = useParams()
-  const [selectedOption, setSelectedOption] = useState<string>("")
+  const pollId = Number(params.id)
+
+  const [poll, setPoll] = useState<PollData | null>(null)
   const [hasVoted, setHasVoted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
-  const poll = mockPollData
+  const {
+    account,
+    getPollSurvey,
+    submitResponse,
+    hasResponded,
+    getPotentialReward,
+    openWalletModal,
+    isConnected
+  } = useVepulseContract()
 
-  const handleVote = async () => {
-    if (!selectedOption) return
+  useEffect(() => {
+    loadPollData()
+  }, [pollId, account])
 
-    setIsSubmitting(true)
-    // Simulate blockchain transaction
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setHasVoted(true)
-    setIsSubmitting(false)
+  const loadPollData = async () => {
+    setIsLoading(true)
+    try {
+      // Fetch poll data
+      const pollData = await getPollSurvey(pollId)
+
+      // Fetch potential reward
+      const reward = await getPotentialReward(pollId)
+
+      setPoll({
+        id: Number(pollData.id),
+        title: pollData.title,
+        description: pollData.description,
+        creator: pollData.creator,
+        createdAt: new Date(Number(pollData.createdAt) * 1000),
+        endDate: new Date(Number(pollData.endTime) * 1000),
+        totalResponses: Number(pollData.totalResponses),
+        status: Number(pollData.status),
+        fundingPool: pollData.fundingPool,
+        potentialReward: reward,
+        itemType: Number(pollData.itemType),
+      })
+
+      // Check if user has already responded
+      if (account) {
+        const responded = await hasResponded(pollId, account)
+        setHasVoted(responded)
+      }
+    } catch (error) {
+      console.error("Error loading poll data:", error)
+      toast.error("Failed to load poll data")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const getPercentage = (votes: number) => {
-    return ((votes / poll.totalVotes) * 100).toFixed(1)
+  const handleVote = async () => {
+    if (!isConnected) {
+      toast.error("Please connect your wallet first")
+      openWalletModal()
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      toast.loading("Submitting your response...", { id: "submit-response" })
+
+      await submitResponse(pollId)
+
+      toast.success("Response submitted successfully!", { id: "submit-response" })
+      setHasVoted(true)
+
+      // Reload poll data to update response count
+      await loadPollData()
+    } catch (error: any) {
+      console.error("Error submitting response:", error)
+      toast.error(error.message || "Failed to submit response", { id: "submit-response" })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <Header />
+        <main className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-12 w-12 animate-spin" />
+        </main>
+      </div>
+    )
+  }
+
+  if (!poll) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <Header />
+        <main className="flex-1 flex items-center justify-center">
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-center text-muted-foreground">Poll not found</p>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    )
+  }
+
+  const isActive = poll.status === 0 && new Date() < poll.endDate
+  const formatAddress = (address: string) => {
+    return `${address.slice(0, 6)}...${address.slice(-4)}`
   }
 
   return (
@@ -99,10 +167,18 @@ export default function PollDetailPage() {
               <Card className="border-2">
                 <CardHeader>
                   <div className="flex items-center gap-2 flex-wrap mb-2">
-                    <Badge variant="secondary">{poll.category}</Badge>
-                    <Badge variant={poll.status === "active" ? "default" : "outline"}>
-                      {poll.status === "active" ? "Active" : "Ended"}
+                    <Badge variant="secondary">
+                      {poll.itemType === 0 ? "Poll" : "Survey"}
                     </Badge>
+                    <Badge variant={isActive ? "default" : "outline"}>
+                      {isActive ? "Active" : "Ended"}
+                    </Badge>
+                    {poll.fundingPool > 0 && (
+                      <Badge variant="default" className="gap-1">
+                        <Coins className="h-3 w-3" />
+                        Funded
+                      </Badge>
+                    )}
                   </div>
                   <CardTitle className="text-3xl">{poll.title}</CardTitle>
                   <CardDescription className="text-base leading-relaxed">{poll.description}</CardDescription>
@@ -110,47 +186,44 @@ export default function PollDetailPage() {
               </Card>
 
               {/* Voting Section */}
-              {!hasVoted ? (
+              {!hasVoted && isActive ? (
                 <Card className="border-2">
                   <CardHeader>
-                    <CardTitle>Cast Your Vote</CardTitle>
-                    <CardDescription>Select one option below and submit your vote to the blockchain</CardDescription>
+                    <CardTitle>Submit Your Response</CardTitle>
+                    <CardDescription>Participate in this {poll.itemType === 0 ? "poll" : "survey"} and submit your response to the blockchain</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    <RadioGroup value={selectedOption} onValueChange={setSelectedOption}>
-                      <div className="space-y-3">
-                        {poll.options.map((option) => (
-                          <div
-                            key={option.id}
-                            className="flex items-start space-x-3 rounded-lg border-2 border-border p-4 hover:border-primary/50 transition-colors"
-                          >
-                            <RadioGroupItem value={option.id.toString()} id={`option-${option.id}`} className="mt-1" />
-                            <div className="flex-1">
-                              <Label htmlFor={`option-${option.id}`} className="text-base font-semibold cursor-pointer">
-                                {option.text}
-                              </Label>
-                              <p className="text-sm text-muted-foreground mt-1">{option.description}</p>
-                            </div>
+                    {poll.potentialReward > 0 && (
+                      <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                            <Coins className="h-5 w-5 text-primary" />
                           </div>
-                        ))}
+                          <div>
+                            <p className="text-sm font-medium">Potential Reward</p>
+                            <p className="text-lg font-bold">
+                              {ethers.formatEther(poll.potentialReward)} VET
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                    </RadioGroup>
+                    )}
 
                     <Button
                       className="w-full"
                       size="lg"
                       onClick={handleVote}
-                      disabled={!selectedOption || isSubmitting}
+                      disabled={isSubmitting}
                     >
-                      {isSubmitting ? "Submitting to Blockchain..." : "Submit Vote"}
+                      {isSubmitting ? "Submitting to Blockchain..." : "Submit Response"}
                     </Button>
 
                     <p className="text-xs text-muted-foreground text-center">
-                      Your vote will be recorded on the VeChain blockchain and cannot be changed once submitted
+                      Your response will be recorded on the VeChain blockchain and cannot be changed once submitted
                     </p>
                   </CardContent>
                 </Card>
-              ) : (
+              ) : hasVoted ? (
                 <Card className="border-2 border-primary">
                   <CardContent className="pt-6">
                     <div className="flex flex-col items-center gap-4 text-center py-8">
@@ -158,36 +231,48 @@ export default function PollDetailPage() {
                         <CheckCircle2 className="h-8 w-8 text-primary" />
                       </div>
                       <div>
-                        <h3 className="text-2xl font-bold mb-2">Vote Submitted!</h3>
-                        <p className="text-muted-foreground">Your vote has been recorded on the VeChain blockchain</p>
+                        <h3 className="text-2xl font-bold mb-2">Response Submitted!</h3>
+                        <p className="text-muted-foreground">Your response has been recorded on the VeChain blockchain</p>
                       </div>
                       <Button variant="outline" asChild>
-                        <Link href="/participant">View More Polls</Link>
+                        <Link href="/participant">View More {poll.itemType === 0 ? "Polls" : "Surveys"}</Link>
                       </Button>
                     </div>
                   </CardContent>
                 </Card>
-              )}
+              ) : null}
 
               {/* Results Section */}
               <Card className="border-2">
                 <CardHeader>
-                  <CardTitle>Current Results</CardTitle>
-                  <CardDescription>Live results updated in real-time from the blockchain</CardDescription>
+                  <CardTitle>Participation Statistics</CardTitle>
+                  <CardDescription>Live data from the VeChain blockchain</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  {poll.options.map((option) => (
-                    <div key={option.id} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{option.text}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-muted-foreground">{option.votes.toLocaleString()} votes</span>
-                          <span className="text-sm font-semibold">{getPercentage(option.votes)}%</span>
+                <CardContent>
+                  <div className="flex items-center justify-between p-6 rounded-lg border-2 bg-muted/30">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+                        <Users className="h-7 w-7 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Total Responses</p>
+                        <p className="text-3xl font-bold">{poll.totalResponses.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                  {poll.fundingPool > 0 && (
+                    <div className="mt-4 flex items-center justify-between p-6 rounded-lg border-2 bg-primary/5">
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+                          <Coins className="h-7 w-7 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Total Funding Pool</p>
+                          <p className="text-3xl font-bold">{ethers.formatEther(poll.fundingPool)} VET</p>
                         </div>
                       </div>
-                      <Progress value={Number.parseFloat(getPercentage(option.votes))} className="h-2" />
                     </div>
-                  ))}
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -197,14 +282,14 @@ export default function PollDetailPage() {
               {/* Poll Info */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Poll Information</CardTitle>
+                  <CardTitle>{poll.itemType === 0 ? "Poll" : "Survey"} Information</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-start gap-3">
                     <Vote className="h-5 w-5 text-muted-foreground mt-0.5" />
                     <div className="flex-1">
-                      <p className="text-sm font-medium">Total Votes</p>
-                      <p className="text-2xl font-bold">{poll.totalVotes.toLocaleString()}</p>
+                      <p className="text-sm font-medium">Total Responses</p>
+                      <p className="text-2xl font-bold">{poll.totalResponses.toLocaleString()}</p>
                     </div>
                   </div>
 
@@ -212,7 +297,7 @@ export default function PollDetailPage() {
                     <Clock className="h-5 w-5 text-muted-foreground mt-0.5" />
                     <div className="flex-1">
                       <p className="text-sm font-medium">End Date</p>
-                      <p className="text-sm text-muted-foreground">{new Date(poll.endDate).toLocaleDateString()}</p>
+                      <p className="text-sm text-muted-foreground">{poll.endDate.toLocaleDateString()}</p>
                     </div>
                   </div>
 
@@ -220,7 +305,7 @@ export default function PollDetailPage() {
                     <Users className="h-5 w-5 text-muted-foreground mt-0.5" />
                     <div className="flex-1">
                       <p className="text-sm font-medium">Creator</p>
-                      <p className="text-sm text-muted-foreground font-mono">{poll.creator}</p>
+                      <p className="text-sm text-muted-foreground font-mono break-all">{formatAddress(poll.creator)}</p>
                     </div>
                   </div>
 
@@ -228,7 +313,7 @@ export default function PollDetailPage() {
                     <TrendingUp className="h-5 w-5 text-muted-foreground mt-0.5" />
                     <div className="flex-1">
                       <p className="text-sm font-medium">Created</p>
-                      <p className="text-sm text-muted-foreground">{new Date(poll.createdDate).toLocaleDateString()}</p>
+                      <p className="text-sm text-muted-foreground">{poll.createdAt.toLocaleDateString()}</p>
                     </div>
                   </div>
                 </CardContent>

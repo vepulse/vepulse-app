@@ -204,6 +204,77 @@ export function useVepulseContract() {
     []
   )
 
+  const submitResponse = useCallback(
+    async (itemId: number) => {
+      if (!ensureWalletConnected()) {
+        throw new Error("Wallet not connected")
+      }
+
+      try {
+        const data = encodeFunction("submitResponse", [itemId])
+
+        const clause = {
+          to: CONTRACT_ADDRESS,
+          value: "0x0",
+          data,
+        }
+
+        const txResponse = await vendor
+          .sign("tx", [clause])
+          .comment(`Submit response to poll/survey #${itemId}`)
+          .request()
+
+        return txResponse
+      } catch (error) {
+        console.error("Error submitting response:", error)
+        throw error
+      }
+    },
+    [account, vendor, ensureWalletConnected]
+  )
+
+  const hasResponded = useCallback(
+    async (itemId: number, address: string) => {
+      try {
+        const thor = new ThorClient(new URL(nodeUrl))
+        const data = encodeFunction("hasResponded", [itemId, address])
+
+        const result = await thor.contracts.executeCall(CONTRACT_ADDRESS, data)
+
+        // Decode the result
+        const iface = new ethers.Interface(VepulseABI as any)
+        const decoded = iface.decodeFunctionResult("hasResponded", result.data)
+
+        return decoded[0] as boolean
+      } catch (error) {
+        console.error("Error checking if responded:", error)
+        return false
+      }
+    },
+    []
+  )
+
+  const getPotentialReward = useCallback(
+    async (itemId: number) => {
+      try {
+        const thor = new ThorClient(new URL(nodeUrl))
+        const data = encodeFunction("getPotentialReward", [itemId])
+
+        const result = await thor.contracts.executeCall(CONTRACT_ADDRESS, data)
+
+        // Decode the result
+        const iface = new ethers.Interface(VepulseABI as any)
+        const decoded = iface.decodeFunctionResult("getPotentialReward", result.data)
+
+        return decoded[0] as bigint
+      } catch (error) {
+        console.error("Error getting potential reward:", error)
+        return BigInt(0)
+      }
+    },
+    []
+  )
+
   return {
     account,
     isConnected: !!account,
@@ -215,6 +286,9 @@ export function useVepulseContract() {
     getUserProjects,
     getUserPollsSurveys,
     getPollSurvey,
+    submitResponse,
+    hasResponded,
+    getPotentialReward,
   }
 }
 
