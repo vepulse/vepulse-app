@@ -1,0 +1,1 @@
+Please read source codes of contract at ../vepulse-contract to have the latest info on what's methods are defined in the smart contract that this project (frontend) interacts with.

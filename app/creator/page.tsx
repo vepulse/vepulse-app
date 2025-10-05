@@ -9,7 +9,6 @@ import { BarChart3, Clock, FileText, FolderOpen, Loader2, Plus, Vote } from "luc
 import Link from "next/link"
 import { useState, useEffect } from "react"
 import { useVepulseContract } from "@/lib/contracts/useVepulseContract"
-import { ethers } from "ethers"
 
 interface Project {
   id: number
@@ -94,8 +93,6 @@ export default function CreatorPage() {
         projectIds.map(async (id) => {
           try {
             const result = await getProject(Number(id))
-            const iface = new ethers.Interface((await import("@/lib/contracts/VepulseABI.json")).default as any)
-            const decoded = iface.decodeFunctionResult("getProject", result.data)
 
             // Filter polls/surveys that belong to this project
             const projectPolls = validPolls.filter(p => p.projectId === Number(id))
@@ -105,9 +102,9 @@ export default function CreatorPage() {
             const hasActivePolls = projectPolls.some(p => p.status === "active")
 
             return {
-              id: Number(decoded[0]),
-              name: decoded[1],
-              description: decoded[2],
+              id: Number(result[0]),
+              name: result[1],
+              description: result[2],
               polls,
               surveys,
               totalVotes,
