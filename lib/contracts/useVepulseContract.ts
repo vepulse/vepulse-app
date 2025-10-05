@@ -1,7 +1,7 @@
-import { useWallet, useWalletModal } from "@vechain/dapp-kit-react"
+import { useWallet, useWalletModal, useConnex } from "@vechain/dapp-kit-react"
 import { useCallback } from "react"
 import { ThorClient } from "@vechain/sdk-network"
-import { ABIContract, Address, Clause } from "@vechain/sdk-core"
+import { ABIContract } from "@vechain/sdk-core"
 import { CONTRACT_ADDRESS, CURRENT_NETWORK } from "./config"
 import VepulseABI from "./VepulseABI.json"
 
@@ -10,8 +10,9 @@ const THOR_URL = CURRENT_NETWORK === "testnet"
   : "https://mainnet.vechain.org"
 
 export function useVepulseContract() {
-  const { account, signer } = useWallet()
+  const { account } = useWallet()
   const { open: openWalletModal } = useWalletModal()
+  const { vendor } = useConnex()
 
   const ensureWalletConnected = useCallback(() => {
     if (!account) {
@@ -28,32 +29,27 @@ export function useVepulseContract() {
       }
 
       try {
-        const contractClause = Clause.callFunction(
-          Address.of(CONTRACT_ADDRESS),
-          ABIContract.ofAbi(VepulseABI as any).getFunction("createProject"),
-          [name, description],
-          0n,
-          { comment: `Create project: ${name}` }
-        )
+        const abiContract = ABIContract.ofAbi(VepulseABI as any)
+        const encodedData = abiContract.encodeFunctionInput("createProject", [name, description])
 
-        const txId = await signer?.sendTransaction({
-          clauses: [
-            {
-              to: contractClause.to,
-              value: contractClause.value.toString(),
-              data: contractClause.data.toString(),
-            },
-          ],
-          comment: `Create project: ${name}`,
-        })
+        const clause = {
+          to: CONTRACT_ADDRESS,
+          value: "0x0",
+          data: encodedData.toString()
+        }
 
-        return txId
+        const result = await vendor
+          .sign("tx", [clause])
+          .comment(`Create project: ${name}`)
+          .request()
+
+        return result.txid
       } catch (error) {
         console.error("Error creating project:", error)
         throw error
       }
     },
-    [account, signer, ensureWalletConnected]
+    [account, vendor, ensureWalletConnected]
   )
 
   const createPoll = useCallback(
@@ -63,32 +59,27 @@ export function useVepulseContract() {
       }
 
       try {
-        const contractClause = Clause.callFunction(
-          Address.of(CONTRACT_ADDRESS),
-          ABIContract.ofAbi(VepulseABI as any).getFunction("createPoll"),
-          [title, description, duration, projectId],
-          0n,
-          { comment: `Create poll: ${title}` }
-        )
+        const abiContract = ABIContract.ofAbi(VepulseABI as any)
+        const encodedData = abiContract.encodeFunctionInput("createPoll", [title, description, duration, projectId])
 
-        const txId = await signer?.sendTransaction({
-          clauses: [
-            {
-              to: contractClause.to,
-              value: contractClause.value.toString(),
-              data: contractClause.data.toString(),
-            },
-          ],
-          comment: `Create poll: ${title}`,
-        })
+        const clause = {
+          to: CONTRACT_ADDRESS,
+          value: "0x0",
+          data: encodedData.toString()
+        }
 
-        return txId
+        const result = await vendor
+          .sign("tx", [clause])
+          .comment(`Create poll: ${title}`)
+          .request()
+
+        return result.txid
       } catch (error) {
         console.error("Error creating poll:", error)
         throw error
       }
     },
-    [account, signer, ensureWalletConnected]
+    [account, vendor, ensureWalletConnected]
   )
 
   const createSurvey = useCallback(
@@ -98,32 +89,27 @@ export function useVepulseContract() {
       }
 
       try {
-        const contractClause = Clause.callFunction(
-          Address.of(CONTRACT_ADDRESS),
-          ABIContract.ofAbi(VepulseABI as any).getFunction("createSurvey"),
-          [title, description, duration, projectId],
-          0n,
-          { comment: `Create survey: ${title}` }
-        )
+        const abiContract = ABIContract.ofAbi(VepulseABI as any)
+        const encodedData = abiContract.encodeFunctionInput("createSurvey", [title, description, duration, projectId])
 
-        const txId = await signer?.sendTransaction({
-          clauses: [
-            {
-              to: contractClause.to,
-              value: contractClause.value.toString(),
-              data: contractClause.data.toString(),
-            },
-          ],
-          comment: `Create survey: ${title}`,
-        })
+        const clause = {
+          to: CONTRACT_ADDRESS,
+          value: "0x0",
+          data: encodedData.toString()
+        }
 
-        return txId
+        const result = await vendor
+          .sign("tx", [clause])
+          .comment(`Create survey: ${title}`)
+          .request()
+
+        return result.txid
       } catch (error) {
         console.error("Error creating survey:", error)
         throw error
       }
     },
-    [account, signer, ensureWalletConnected]
+    [account, vendor, ensureWalletConnected]
   )
 
   const getProject = useCallback(
@@ -211,32 +197,27 @@ export function useVepulseContract() {
       }
 
       try {
-        const contractClause = Clause.callFunction(
-          Address.of(CONTRACT_ADDRESS),
-          ABIContract.ofAbi(VepulseABI as any).getFunction("submitResponse"),
-          [itemId],
-          0n,
-          { comment: `Submit response to poll/survey #${itemId}` }
-        )
+        const abiContract = ABIContract.ofAbi(VepulseABI as any)
+        const encodedData = abiContract.encodeFunctionInput("submitResponse", [itemId])
 
-        const txId = await signer?.sendTransaction({
-          clauses: [
-            {
-              to: contractClause.to,
-              value: contractClause.value.toString(),
-              data: contractClause.data.toString(),
-            },
-          ],
-          comment: `Submit response to poll/survey #${itemId}`,
-        })
+        const clause = {
+          to: CONTRACT_ADDRESS,
+          value: "0x0",
+          data: encodedData.toString()
+        }
 
-        return txId
+        const result = await vendor
+          .sign("tx", [clause])
+          .comment(`Submit response to poll/survey #${itemId}`)
+          .request()
+
+        return result.txid
       } catch (error) {
         console.error("Error submitting response:", error)
         throw error
       }
     },
-    [account, signer, ensureWalletConnected]
+    [account, vendor, ensureWalletConnected]
   )
 
   const hasResponded = useCallback(
